@@ -55,8 +55,6 @@ m3u8-player/
 │       ├── config.rs           # 窗口状态持久化
 │       ├── crypto.rs           # JAV 源解密管线
 │       └── parser.rs           # HTML 解析工具
-├── main.js                     # [遗留] Electron 主进程
-├── preload.js                  # [遗留] Electron preload
 └── package.json
 ```
 

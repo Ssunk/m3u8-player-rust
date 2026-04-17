@@ -4,3 +4,4 @@ dist/
 .DS_Store
 .claude/
 src-tauri/target
+src-tauri/src/crypto.rs
