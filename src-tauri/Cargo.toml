@@ -1,0 +1,24 @@
+[package]
+name = "m3u8-player"
+version = "1.0.0"
+description = "M3U8 视频播放器"
+edition = "2021"
+
+[build-dependencies]
+tauri-build = { version = "1", features = [] }
+
+[dependencies]
+tauri = { version = "1", features = ["dialog-open", "dialog-message", "dialog-confirm", "shell-open", "fs-all", "path-all", "window-all"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+reqwest = { version = "0.11", features = ["blocking", "rustls-tls"], default-features = false }
+base64 = "0.21"
+urlencoding = "2"
+dirs = "5"
+tokio = { version = "1", features = ["full"] }
+regex = "1"
+url = "2"
+
+[features]
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]

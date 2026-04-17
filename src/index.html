@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>M3U8 播放器</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app-container">
+    <!-- 顶部工具栏 -->
+    <div class="top-bar">
+      <div class="url-input-container">
+        <input type="text" id="urlInput" class="url-input" placeholder="输入 M3U8 地址或拖拽文件到此处...">
+        <button id="loadBtn" class="btn btn-primary">加载</button>
+        <button id="openFileBtn" class="btn">打开文件</button>
+      </div>
+    </div>
+
+    <!-- 主内容区 -->
+    <div class="main-content">
+      <!-- 播放器区域 -->
+      <div class="player-container">
+        <div class="video-wrapper">
+          <video id="videoPlayer" playsinline>
+            <div class="video-overlay" id="videoOverlay">
+              <div class="loading-spinner" id="loadingSpinner"></div>
+              <div class="error-message" id="errorMessage"></div>
+            </div>
+        </div>
+
+        <!-- 控制栏 -->
+        <div class="controls-bar" id="controlsBar">
+          <div class="progress-container" id="progressContainer">
+            <div class="progress-bar" id="progressBar">
+              <div class="progress-buffered" id="progressBuffered"></div>
+              <div class="progress-played" id="progressPlayed"></div>
+              <div class="progress-hover-time" id="progressHoverTime">00:00</div>
+            </div>
+            <div class="progress-time" id="progressTime">
+              <span id="currentTime">00:00</span> / <span id="duration">00:00</span>
+            </div>
+          </div>
+
+          <div class="controls-buttons">
+            <div class="left-controls">
+              <button class="control-btn" id="playPauseBtn" title="播放/暂停">
+                <svg class="play-icon" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                <svg class="pause-icon" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
+              </button>
+              <button class="control-btn" id="stopBtn" title="停止">
+                <svg viewBox="0 0 24 24"><path d="M6 6h12v12H6z"/></svg>
+              </button>
+              <div class="volume-control">
+                <button class="control-btn" id="volumeBtn" title="音量">
+                  <svg class="volume-high-icon" viewBox="0 0 24 24"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>
+                  <svg class="volume-low-icon" viewBox="0 0 24 24"><path d="M18.5 12c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM5 9v6h4l5 5V4L9 9H5z"/></svg>
+                  <svg class="volume-mute-icon" viewBox="0 0 24 24"><path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"/></svg>
+                </button>
+                <input type="range" id="volumeSlider" class="volume-slider" min="0" max="1" step="0.1" value="1">
+              </div>
+            </div>
+
+            <div class="center-controls">
+              <span class="title-display" id="titleDisplay">未加载</span>
+            </div>
+
+            <div class="right-controls">
+              <div class="speed-selector">
+                <select id="speedSelect">
+                  <option value="0.5">0.5x</option>
+                  <option value="0.75">0.75x</option>
+                  <option value="1" selected>1x</option>
+                  <option value="1.25">1.25x</option>
+                  <option value="1.5">1.5x</option>
+                  <option value="2">2x</option>
+                </select>
+              </div>
+              <button class="control-btn" id="skipSettingsBtn" title="跳过设置">
+                <svg viewBox="0 0 24 24"><path d="M12 8a4 4 0 1 1 0 8 4 4 0 0 1 0-8zm0 2a2 2 0 1 0 0 4 2 2 0 0 0 0-4zm7-6V3h-2v1h-2v2h2v1h2V6h2V4h-2zm-8 0V3H9v1H7v2h2v1h2V6h2V4h-2z"/></svg>
+              </button>
+              <button class="control-btn" id="playlistToggleBtn" title="播放列表">
+                <svg viewBox="0 0 24 24"><path d="M4 10h12v2H4v-2zm0-4h12v2H4V6zm0 8h8v2H4v-2zm10 0v6l5-3-5-3z"/></svg>
+              </button>
+              <button class="control-btn" id="fullscreenBtn" title="全屏">
+                <svg class="fullscreen-icon" viewBox="0 0 24 24"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>
+                <svg class="exit-fullscreen-icon" viewBox="0 0 24 24"><path d="M5 16h3v3h2v-5H5v2zm3-8H5v2h5V5H8v3zm6 11h2v-3h3v-2h-5v5zm2-11V5h-2v5h5V8h-3z"/></svg>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 播放列表面板 -->
+      <div class="playlist-panel" id="playlistPanel">
+        <div class="playlist-header">
+          <h3>播放列表</h3>
+          <div class="playlist-header-buttons">
+            <button class="btn btn-small" id="addUrlBtn">添加 URL</button>
+            <button class="btn btn-small btn-danger" id="clearPlaylistBtn">清空</button>
+          </div>
+        </div>
+        <div class="playlist-items" id="playlistItems">
+          <div class="playlist-empty">暂无播放列表</div>
+        </div>
+      </div>
+
+      <!-- 搜索面板 -->
+      <div class="search-panel visible" id="searchPanel">
+        <div class="search-input-row">
+          <select id="searchSource" class="search-source-select">
+            <option value="movie">影视</option>
+            <option value="jav">小电影</option>
+          </select>
+          <input type="text" id="searchInput" class="search-input" placeholder="输入电影/电视剧/动画名称，按回车搜索...">
+        </div>
+        <div class="search-history" id="searchHistory">
+          <div class="search-history-header">
+            <span>搜索历史</span>
+            <button class="btn btn-small" id="clearSearchHistoryBtn">清空</button>
+          </div>
+          <div class="search-history-items" id="searchHistoryItems"></div>
+        </div>
+        <div class="search-results" id="searchResults">
+          <div class="search-empty">输入关键词搜索影视资源</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 跳过设置弹窗 -->
+  <div class="skip-settings-modal" id="skipSettingsModal">
+    <div class="modal-content">
+      <h3 class="modal-title">跳过设置</h3>
+      <div class="form-row">
+        <label>片头跳过:</label>
+        <div class="input-wrapper">
+          <input type="text" id="skipIntroInput" placeholder="分:秒 或 秒数" class="modal-input">
+        </div>
+      </div>
+      <div class="form-row">
+        <label>片尾跳过:</label>
+        <div class="input-wrapper">
+          <input type="text" id="skipOutroInput" placeholder="分:秒 或 秒数" class="modal-input">
+          <span class="hint">从末尾计算</span>
+        </div>
+      </div>
+      <div class="form-row checkbox-row">
+        <input type="checkbox" id="setAsDefault">
+        <label for="setAsDefault">设为默认（新视频自动生效）</label>
+      </div>
+      <div class="modal-buttons">
+        <button class="btn" id="cancelSkipSettings">取消</button>
+        <button class="btn btn-primary" id="saveSkipSettings">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="vendor/hls.light.min.js"></script>
+  <script src="player.js"></script>
+</body>
+</html>

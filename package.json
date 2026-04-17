@@ -1,0 +1,18 @@
+{
+  "name": "m3u8-player",
+  "version": "1.0.0",
+  "description": "功能完整的 M3U8 视频播放器",
+  "scripts": {
+    "tauri": "tauri",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build"
+  },
+  "author": "M3U8 Player",
+  "license": "MIT",
+  "devDependencies": {
+    "@tauri-apps/cli": "^1"
+  },
+  "dependencies": {
+    "hls.js": "^1.5.1"
+  }
+}
