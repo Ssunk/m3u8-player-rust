@@ -29,7 +29,7 @@ pub fn parse_jav_search_result(html: &str) -> Vec<JavSearchItem> {
 
     // 每个卡片是一个 <div class="card">
     let card_re = Regex::new(r#"<div class="card"[^>]*>(.*?)</div>\s*</div>"#).unwrap();
-    let href_re = Regex::new(r#"href="(/en/v/[^"]+)""#).unwrap();
+    let href_re = Regex::new(r#"href="(/cn/v/[^"]+)""#).unwrap();
     let cover_re = Regex::new(r#"<img[^>]*src="([^"]+)""#).unwrap();
     let title_re = Regex::new(r#"card__title"><a[^>]*>([^<]+)"#).unwrap();
 
@@ -132,7 +132,7 @@ pub fn is_trusted_jav_video_url(video_url: &str) -> bool {
     if let Ok(parsed) = url::Url::parse(video_url) {
         parsed.scheme() == "https"
             && parsed.host_str() == Some("123av.com")
-            && parsed.path().starts_with("/en/v/")
+            && parsed.path().starts_with("/cn/v/")
     } else {
         false
     }

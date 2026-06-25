@@ -424,7 +424,7 @@ pub async fn search_resource(keyword: String) -> SearchResult {
 pub async fn search_jav(keyword: String, page: Option<u32>) -> JavSearchResult {
     let safe_page = page.unwrap_or(1).max(1);
     let url = format!(
-        "https://123av.com/en/search?keyword={}&page={}",
+        "https://123av.com/cn/search?keyword={}&page={}",
         urlencoding::encode(&keyword),
         safe_page
     );
