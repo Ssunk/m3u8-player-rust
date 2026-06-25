@@ -1,4 +1,3 @@
-use crate::crypto;
 use crate::parser;
 use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, REFERER, USER_AGENT};
 use serde::{Deserialize, Serialize};
@@ -93,7 +92,7 @@ fn jav_headers() -> HeaderMap {
         "Accept-Language",
         HeaderValue::from_static("en-US,en;q=0.9,zh-CN;q=0.8,zh;q=0.7"),
     );
-    headers.insert(REFERER, HeaderValue::from_static("https://javxx.com/"));
+    headers.insert(REFERER, HeaderValue::from_static("https://123av.com/"));
     headers
 }
 
@@ -425,7 +424,7 @@ pub async fn search_resource(keyword: String) -> SearchResult {
 pub async fn search_jav(keyword: String, page: Option<u32>) -> JavSearchResult {
     let safe_page = page.unwrap_or(1).max(1);
     let url = format!(
-        "https://javxx.com/cn/search?keyword={}&page={}",
+        "https://123av.com/en/search?keyword={}&page={}",
         urlencoding::encode(&keyword),
         safe_page
     );
@@ -478,9 +477,9 @@ pub async fn get_jav_video_url(video_url: String, cover: Option<String>) -> JavV
 
     let client = build_jav_client();
     let headers = jav_headers();
-    let cover_str = cover.unwrap_or_default();
+    let _cover_str = cover.unwrap_or_default();
 
-    // 1. 请求视频页面获取 data-url
+    // 1. 请求视频页面
     let page_response = match client.get(&video_url).headers(headers.clone()).send().await {
         Ok(r) => r,
         Err(e) => {
@@ -505,36 +504,55 @@ pub async fn get_jav_video_url(video_url: String, cover: Option<String>) -> JavV
         }
     };
 
-    // 2. 提取 data-url
-    let data_url_re = regex::Regex::new(r#"data-url="([^"]+)""#).unwrap();
-    let data_url = match data_url_re.captures(&page_html) {
-        Some(caps) => caps.get(1).unwrap().as_str().to_string(),
+    // 2. 从 x-data="player(JSON.parse('...'))" 中提取转义前的 JSON
+    let raw_json = match parser::extract_player_json(&page_html) {
+        Some(j) => j,
         None => {
             return JavVideoResult {
                 success: false,
                 stream: None,
                 vtt: None,
-                error: Some("未找到播放链接".to_string()),
+                error: Some("未找到播放数据".to_string()),
             };
         }
     };
 
-    // 3. 解密 data-url
-    let decrypted_url = match crypto::simple_decrypt(&data_url) {
-        Some(url) => url,
+    // 3. JS 解转义得到实际 JSON 字符串
+    let unescaped = parser::js_unescape(&raw_json);
+
+    // 4. 解析 JSON 获取 episodes
+    let episodes: Vec<Value> = match serde_json::from_str(&unescaped) {
+        Ok(v) => v,
+        Err(e) => {
+            return JavVideoResult {
+                success: false,
+                stream: None,
+                vtt: None,
+                error: Some(format!("解析播放数据失败: {}", e)),
+            };
+        }
+    };
+
+    // 5. 取第一个 episode 的 url
+    let surrit_url = match episodes.first() {
+        Some(ep) => ep.get("url").and_then(|u| u.as_str()).map(|s| s.to_string()),
+        None => None,
+    };
+    let surrit_url = match surrit_url {
+        Some(u) => u,
         None => {
             return JavVideoResult {
                 success: false,
                 stream: None,
                 vtt: None,
-                error: Some("解密失败".to_string()),
+                error: Some("播放链接无效".to_string()),
             };
         }
     };
 
-    // 4. 提取视频 ID
-    let id_re = regex::Regex::new(r"/e/([A-Za-z0-9]+)").unwrap();
-    let video_id = match id_re.captures(&decrypted_url) {
+    // 6. 从 surrit.store/e/{id} 中提取视频 ID
+    let id_re = regex::Regex::new(r"/e/([A-Za-z0-9_]+)").unwrap();
+    let video_id = match id_re.captures(&surrit_url) {
         Some(caps) => caps.get(1).unwrap().as_str().to_string(),
         None => {
             return JavVideoResult {
@@ -546,14 +564,21 @@ pub async fn get_jav_video_url(video_url: String, cover: Option<String>) -> JavV
         }
     };
 
-    // 5. 生成 token
-    let encrypted_id = crypto::l_encrypt(&video_id);
+    // 7. 提取 poster 参数
+    let poster = if let Ok(parsed) = url::Url::parse(&surrit_url) {
+        parsed.query_pairs()
+            .find(|(k, _)| k == "poster")
+            .map(|(_, v)| v.to_string())
+            .unwrap_or_default()
+    } else {
+        String::new()
+    };
 
-    // 6. 请求媒体信息
+    // 8. 直接请求 surrit.store/stream 获取媒体信息
     let media_url = format!(
-        "https://surrit.store/stream?src=javxx&poster={}&token={}",
-        urlencoding::encode(&cover_str),
-        urlencoding::encode(&encrypted_id)
+        "https://surrit.store/stream?id={}&poster={}",
+        urlencoding::encode(&video_id),
+        urlencoding::encode(&poster)
     );
 
     let mut media_headers = jav_headers();
@@ -598,49 +623,31 @@ pub async fn get_jav_video_url(video_url: String, cover: Option<String>) -> JavV
         }
     };
 
-    let media_base64 = match media_json
-        .get("result")
-        .and_then(|r| r.get("media"))
-        .and_then(|m| m.as_str())
-    {
-        Some(m) => m.to_string(),
-        None => {
-            return JavVideoResult {
-                success: false,
-                stream: None,
-                vtt: None,
-                error: Some("未获取到媒体数据".to_string()),
-            };
-        }
-    };
+    // 9. 从 { status: "ok", media: { stream: "...", vtt: "..." } } 中提取
+    let stream = media_json
+        .get("media")
+        .and_then(|m| m.get("stream"))
+        .and_then(|s| s.as_str())
+        .map(|s| s.to_string());
+    let vtt = media_json
+        .get("media")
+        .and_then(|m| m.get("vtt"))
+        .and_then(|v| v.as_str())
+        .map(|v| v.to_string());
 
-    // 7. 解密媒体信息
-    match crypto::decode_media(&media_base64) {
-        Some(media_info) => {
-            let stream = media_info.get("stream").and_then(|s| s.as_str()).map(|s| s.to_string());
-            let vtt = media_info.get("vtt").and_then(|v| v.as_str()).map(|v| v.to_string());
-
-            if stream.is_none() {
-                return JavVideoResult {
-                    success: false,
-                    stream: None,
-                    vtt: None,
-                    error: Some("解密媒体信息失败".to_string()),
-                };
-            }
-
-            JavVideoResult {
-                success: true,
-                stream,
-                vtt,
-                error: None,
-            }
-        }
-        None => JavVideoResult {
+    if stream.is_none() {
+        return JavVideoResult {
             success: false,
             stream: None,
             vtt: None,
-            error: Some("解密媒体信息失败".to_string()),
-        },
+            error: Some("未获取到流地址".to_string()),
+        };
+    }
+
+    JavVideoResult {
+        success: true,
+        stream,
+        vtt,
+        error: None,
     }
 }

@@ -5,3 +5,4 @@ dist/
 .claude/
 src-tauri/target
 src-tauri/src/crypto.rs
+CLAUDE.md

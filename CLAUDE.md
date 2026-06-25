@@ -11,7 +11,7 @@ M3U8 Player 是一个 M3U8 流媒体视频桌面播放器。已从 Electron 迁�
 ```bash
 npm run tauri:dev     # 开发模式运行（需要 Rust 工具链）
 npm run tauri:build   # 构建安装包（输出到 src-tauri/target/release/bundle/）
-cargo test -p m3u8-player  # 运行 Rust 后端测试（在 src-tauri/ 目录下）
+cargo test -p m3u8-player  # 运行 Rust 后端测试
 ```
 
 前置条件：Node.js + Rust stable 工具链（rustup）+ Tauri v1 CLI（`@tauri-apps/cli`）。
@@ -32,7 +32,7 @@ m3u8-player/
 │   │   ├── main.rs         # Tauri 入口：窗口管理、状态初始化、事件处理、命令注册
 │   │   ├── commands.rs     # 所有 Tauri commands（IPC 处理器）
 │   │   ├── config.rs       # WindowState 序列化 + 数据目录管理
-│   │   ├── crypto.rs       # JAV 源的解密管线：simpleDecrypt / lEncrypt / decodeMedia
+│   │   ├── crypto.rs       # JAV 源的解密管线：simple_decrypt / l_encrypt / decode_media
 │   │   └── parser.rs       # HTML 解析：搜索结果提取、URL 白名单校验
 │   ├── Cargo.toml
 │   └── tauri.conf.json     # Tauri 配置（窗口、CSP、权限白名单）
@@ -85,8 +85,9 @@ m3u8-player/
 
 ## Notes
 
-- `main.js`、`preload.js`、`search.js` 是 Electron 遗留文件，Tauri 版本不使用它们。`src/player.js` 同时包含 Tauri API 桥接和播放器逻辑。
+- `main.js`、`preload.js` 是 Electron 遗留文件，Tauri 版本不使用它们。`src/player.js` 同时包含 Tauri API 桥接和播放器逻辑。
 - 搜索缓存使用 localStorage，key 格式：`search_v2_{keyword}`（影视）、`jav_{keyword}_{page}`（JAV），有效期 24 小时。
 - 拖拽文件播放通过 Tauri 的 `fileDropEnabled` 配置 + 前端 `drop` 事件实现。
 - 窗口关闭时自动保存位置/尺寸（`on_window_event` → `CloseRequested`）。
 - `tauri.conf.json` 的 CSP 策略限制了脚本来源为 `'self'`，媒体和图片允许 `https: http: blob:`。
+- `commands.rs` 中的对话框 API 使用了 `tauri::api::dialog`（Tauri v1 旧 API），需确保 Tauri 版本兼容。

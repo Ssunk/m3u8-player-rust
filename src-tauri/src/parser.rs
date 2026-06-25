@@ -12,94 +12,127 @@ pub struct JavSearchItem {
     pub data_url: String,
 }
 
-/// 从 HTML 中提取小电影搜索结果
-/// 对应 JS 中的 parseJavSearchResult 函数
+/// 从 HTML 中提取小电影搜索结果（123av.com）
 pub fn parse_jav_search_result(html: &str) -> Vec<JavSearchItem> {
     let mut results = Vec::new();
 
-    // 按 class="item" 分割 HTML，每段对应一个条目
-    let parts: Vec<&str> = html.split("class=\"item\"").collect();
+    // 123av.com 使用 <div class="grid"> 包含 <div class="card"> 条目
+    let grid_re = Regex::new(r#"<div class="grid">(.*?)</div>\s*<div class="pager""#).unwrap();
+    let grid_html = match grid_re.captures(html) {
+        Some(caps) => caps.get(1).map(|m| m.as_str()),
+        None => return results,
+    };
+    let grid_html = match grid_html {
+        Some(h) => h,
+        None => return results,
+    };
 
-    let href_re = Regex::new(r#"href="(/cn/v/[^"]+)""#).unwrap();
-    let cover_re = Regex::new(r#"src="([^"]+\.webp)""#).unwrap();
-    let data_url_re = Regex::new(r#"data-url="([^"]+)""#).unwrap();
+    // 每个卡片是一个 <div class="card">
+    let card_re = Regex::new(r#"<div class="card"[^>]*>(.*?)</div>\s*</div>"#).unwrap();
+    let href_re = Regex::new(r#"href="(/en/v/[^"]+)""#).unwrap();
+    let cover_re = Regex::new(r#"<img[^>]*src="([^"]+)""#).unwrap();
+    let title_re = Regex::new(r#"card__title"><a[^>]*>([^<]+)"#).unwrap();
 
-    // 跳过第一段（class="item" 之前的内容）
-    for (i, part) in parts.iter().enumerate().skip(1) {
-        // 提取视频链接 href
+    for caps in card_re.captures_iter(grid_html) {
+        let card_html = caps.get(1).map(|m| m.as_str()).unwrap_or("");
+
         let href = href_re
-            .captures(part)
+            .captures(card_html)
             .and_then(|c| c.get(1))
             .map(|m| m.as_str().to_string())
             .unwrap_or_default();
 
         let url = if !href.is_empty() {
-            format!("https://javxx.com{}", href)
+            format!("https://123av.com{}", href)
         } else {
-            String::new()
+            continue;
         };
 
-        // 提取标题 - 从 href 最后部分
-        let title = if !href.is_empty() {
-            href.split('/').last().unwrap_or("").to_string()
-        } else {
-            String::new()
-        };
+        let title = title_re
+            .captures(card_html)
+            .and_then(|c| c.get(1))
+            .map(|m| {
+                // 解码 HTML 实体
+                let t = m.as_str().to_string();
+                t.replace("&#039;", "'")
+                    .replace("&amp;", "&")
+                    .replace("&lt;", "<")
+                    .replace("&gt;", ">")
+                    .replace("&quot;", "\"")
+            })
+            .unwrap_or_default();
 
-        // 提取 webp 封面图
         let cover = cover_re
-            .captures(part)
+            .captures(card_html)
             .and_then(|c| c.get(1))
             .map(|m| m.as_str().to_string())
             .unwrap_or_default();
 
-        // 提取 data-url
-        let data_url = data_url_re
-            .captures(part)
-            .and_then(|c| c.get(1))
-            .map(|m| m.as_str().to_string())
-            .unwrap_or_default();
+        // 从 url slug 提取 id
+        let id = href.split('/').last().unwrap_or("").to_string();
 
-        if !url.is_empty() || !title.is_empty() {
-            results.push(JavSearchItem {
-                id: if !title.is_empty() { title.clone() } else { format!("item_{}", i) },
-                title: if !title.is_empty() { title } else { format!("Item {}", i) },
-                cover,
-                url,
-                data_url,
-            });
-        }
+        results.push(JavSearchItem {
+            id: if !id.is_empty() { id } else { format!("item_{}", results.len() + 1) },
+            title: if !title.is_empty() { title } else { format!("Item {}", results.len() + 1) },
+            cover,
+            url,
+            data_url: String::new(),
+        });
     }
 
     results
 }
 
-/// 从 item HTML 中提取 data-url
-fn extract_data_url(item_html: &str) -> String {
-    Regex::new(r#"data-url="([^"]+)""#)
-        .ok()
-        .and_then(|re| re.captures(item_html))
-        .and_then(|c| c.get(1))
-        .map(|m| m.as_str().to_string())
-        .unwrap_or_default()
-}
-
-/// 从 HTML 中提取 _obj.player JSON 数据
-/// 对应 JS 中 get-m3u8-url 的解析逻辑
-pub fn extract_player_url(html: &str) -> Option<String> {
-    let re = Regex::new(r#"_obj\.player\s*=\s*(\{.*?\});"#).ok()?;
+/// 从视频详情页 HTML 中提取播放信息 JSON（123av.com）
+/// 从 x-data="player(JSON.parse('...'))" 中提取 JS 转义前的 JSON 字符串
+pub fn extract_player_json(html: &str) -> Option<String> {
+    let re = Regex::new(r#"x-data="player\(JSON\.parse\('([^']+)'\)"#).unwrap();
     let caps = re.captures(html)?;
-    let json_str = caps.get(1)?.as_str();
-    let player_data: serde_json::Value = serde_json::from_str(json_str).ok()?;
-    player_data.get("url")?.as_str().map(|s| s.to_string())
+    let raw = caps.get(1)?.as_str();
+    Some(raw.to_string())
 }
 
-/// 检查是否是受信任的 JAV 视频 URL
+/// JS 字符串解转义（供 extract_player_json 结果使用）
+pub fn js_unescape(s: &str) -> String {
+    let mut result = String::with_capacity(s.len());
+    let mut chars = s.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '\\' {
+            match chars.next() {
+                Some('\\') => result.push('\\'),
+                Some('/') => result.push('/'),
+                Some('n') => result.push('\n'),
+                Some('r') => result.push('\r'),
+                Some('t') => result.push('\t'),
+                Some('b') => result.push('\u{8}'),
+                Some('f') => result.push('\u{c}'),
+                Some('u') => {
+                    let hex: String = chars.by_ref().take(4).collect();
+                    if let Ok(code) = u32::from_str_radix(&hex, 16) {
+                        if let Some(ch) = char::from_u32(code) {
+                            result.push(ch);
+                        }
+                    }
+                }
+                Some(c) => {
+                    result.push('\\');
+                    result.push(c);
+                }
+                None => result.push('\\'),
+            }
+        } else {
+            result.push(c);
+        }
+    }
+    result
+}
+
+/// 检查是否是受信任的 JAV 视频 URL（123av.com）
 pub fn is_trusted_jav_video_url(video_url: &str) -> bool {
     if let Ok(parsed) = url::Url::parse(video_url) {
         parsed.scheme() == "https"
-            && parsed.host_str() == Some("javxx.com")
-            && parsed.path().starts_with("/cn/v/")
+            && parsed.host_str() == Some("123av.com")
+            && parsed.path().starts_with("/en/v/")
     } else {
         false
     }

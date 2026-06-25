@@ -521,6 +521,7 @@ class M3U8Player {
     }
 
     // 防止默认拖拽行为
+    document.addEventListener('contextmenu', (e) => e.preventDefault());
     document.addEventListener('dragover', (e) => e.preventDefault());
     document.addEventListener('drop', (e) => e.preventDefault());
   }
