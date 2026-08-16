@@ -344,14 +344,19 @@ pub fn clear_search_history(state: State<'_, AppState>) -> SimpleResult {
 }
 
 // =========================================================================
-// 影视搜索 Commands (源1)
+// 影视搜索 Commands
 // =========================================================================
 
 #[tauri::command]
-pub async fn search_resource(keyword: String) -> SearchResult {
+pub async fn search_resource(keyword: String, source: Option<String>) -> SearchResult {
     let encoded_keyword = urlencoding::encode(&keyword);
+    let source = source.as_deref().unwrap_or("hongniu");
     let url = format!(
-        "http://api.ffzyapi.com/api.php/provide/vod/from/ffm3u8/?ac=detail&wd={}",
+        "{}?ac=detail&wd={}",
+        match source {
+            "xigua" => "https://caiji.xgzyapi.com/api.php/provide/vod/from/xiguam3u8/",
+            _ => "https://www.hongniuzy3.com/api.php/provide/vod/from/hnm3u8/",
+        },
         encoded_keyword
     );
 
@@ -364,36 +369,28 @@ pub async fn search_resource(keyword: String) -> SearchResult {
 
     match client.get(&url).headers(headers).send().await {
         Ok(response) => {
+            let status = response.status();
             match response.text().await {
                 Ok(body) => {
-                    match serde_json::from_str::<Value>(&body) {
-                        Ok(data) => {
-                            let list = data.get("list").and_then(|l| l.as_array());
-                            match list {
-                                Some(items) if !items.is_empty() => {
-                                    let results: Vec<Value> = items
-                                        .iter()
-                                        .map(|item| {
-                                            serde_json::json!({
-                                                "title": item.get("vod_name").and_then(|v| v.as_str()).unwrap_or(""),
-                                                "cover": item.get("vod_pic").and_then(|v| v.as_str()).unwrap_or(""),
-                                                "vodPlayUrl": item.get("vod_play_url").and_then(|v| v.as_str()).unwrap_or("")
-                                            })
-                                        })
-                                        .collect();
-                                    SearchResult {
-                                        success: true,
-                                        results: Some(results),
-                                        error: None,
-                                    }
-                                }
-                                _ => SearchResult {
-                                    success: false,
-                                    results: None,
-                                    error: Some("未找到结果".to_string()),
-                                },
-                            }
-                        }
+                    if !status.is_success() {
+                        return SearchResult {
+                            success: false,
+                            results: None,
+                            error: Some(format!("源站返回 HTTP {}", status)),
+                        };
+                    }
+                    let parsed = parse_vod_json(&body);
+                    match parsed {
+                        Ok(results) if !results.is_empty() => SearchResult {
+                            success: true,
+                            results: Some(results),
+                            error: None,
+                        },
+                        Ok(_) => SearchResult {
+                            success: false,
+                            results: None,
+                            error: Some("未找到结果".to_string()),
+                        },
                         Err(e) => SearchResult {
                             success: false,
                             results: None,
@@ -414,6 +411,27 @@ pub async fn search_resource(keyword: String) -> SearchResult {
             error: Some(e.to_string()),
         },
     }
+}
+
+fn parse_vod_json(body: &str) -> Result<Vec<Value>, String> {
+    let data = serde_json::from_str::<Value>(body.trim_start_matches('\u{feff}').trim())
+        .map_err(|e| e.to_string())?;
+    Ok(data
+        .get("list")
+        .and_then(|l| l.as_array())
+        .map(|items| {
+            items
+                .iter()
+                .map(|item| {
+                    serde_json::json!({
+                        "title": item.get("vod_name").and_then(|v| v.as_str()).unwrap_or(""),
+                        "cover": item.get("vod_pic").and_then(|v| v.as_str()).unwrap_or(""),
+                        "vodPlayUrl": item.get("vod_play_url").and_then(|v| v.as_str()).unwrap_or("")
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default())
 }
 
 // =========================================================================
@@ -463,6 +481,7 @@ pub async fn search_jav(keyword: String, page: Option<u32>) -> JavSearchResult {
         },
     }
 }
+
 
 #[tauri::command]
 pub async fn get_jav_video_url(video_url: String, cover: Option<String>) -> JavVideoResult {

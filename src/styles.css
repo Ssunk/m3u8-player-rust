@@ -705,6 +705,43 @@ body {
   padding: 10px 15px;
 }
 
+.movie-source-tabs {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 10px;
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background-color: var(--bg-color);
+}
+
+.movie-source-select {
+  flex: 1;
+  min-height: 32px;
+  padding: 6px 10px;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  background-color: var(--bg-tertiary);
+  color: var(--text-color);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.movie-source-select:hover {
+  border-color: var(--primary-color);
+}
+
+.movie-source-select:focus {
+  outline: none;
+  border-color: var(--primary-color);
+}
+
+.movie-source-results {
+  min-height: 0;
+}
+
 .search-empty {
   color: var(--text-secondary);
   text-align: center;

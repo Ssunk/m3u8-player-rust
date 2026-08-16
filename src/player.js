@@ -6,8 +6,8 @@ const tauriAPI = {
   openFile: () => invoke('open_file_dialog'),
   showConfirmDialog: (message) => invoke('show_confirm_dialog', { message }),
   getAppPath: () => invoke('get_app_path'),
-  // 影视搜索（源1）
-  searchResource: (keyword) => invoke('search_resource', { keyword }),
+  // 影视搜索源
+  searchResource: (keyword, source) => invoke('search_resource', { keyword, source }),
   // 小电影搜索（源2）
   searchJav: (keyword, page) => invoke('search_jav', { keyword, page }),
   getJavVideoUrl: (videoUrl, cover) => invoke('get_jav_video_url', { videoUrl, cover }),
@@ -38,9 +38,17 @@ class M3U8Player {
 
     // 搜索缓存配置
     this.searchCache = {
-      prefix: 'search_v2_',
+      prefix: 'search_v3_',
       expire: 24 * 60 * 60 * 1000 // 24小时
     };
+    this.movieSources = [
+      { id: 'hongniu', name: '红牛' },
+      { id: 'xigua', name: '西瓜' }
+    ];
+    this.movieSourceResults = {};
+    this.movieSourceCacheState = {};
+    this.currentMovieKeyword = '';
+    this.currentMovieSource = 'hongniu';
 
     // 搜索历史
     this.searchHistory = [];
@@ -1187,9 +1195,9 @@ class M3U8Player {
   }
 
   // 搜索缓存相关方法
-  getCache(keyword) {
+  getCache(keyword, source = 'hongniu') {
     try {
-      const cacheKey = this.searchCache.prefix + keyword;
+      const cacheKey = this.searchCache.prefix + source + '_' + keyword;
       const cached = localStorage.getItem(cacheKey);
       if (!cached) return null;
 
@@ -1207,9 +1215,9 @@ class M3U8Player {
     }
   }
 
-  setCache(keyword, data) {
+  setCache(keyword, data, source = 'hongniu') {
     try {
-      const cacheKey = this.searchCache.prefix + keyword;
+      const cacheKey = this.searchCache.prefix + source + '_' + keyword;
       const cacheData = {
         data,
         timestamp: Date.now()
@@ -1238,40 +1246,97 @@ class M3U8Player {
   }
 
   async doMovieSearch(keyword) {
-    // 先检查缓存
-    const cached = this.getCache(keyword);
-    if (cached) {
-      console.log('Using cached result for:', keyword);
-      this.renderSearchResults(cached, true);
+    this.currentMovieKeyword = keyword;
+    this.movieSourceResults = {};
+    this.movieSourceCacheState = {};
+    this.showSearchStatus('search-loading', '搜索中...');
+
+    const responses = await Promise.all(this.movieSources.map(async (source) => {
+      const sourceId = source.id;
+      const cached = this.getCache(keyword, sourceId);
+      if (Array.isArray(cached) && cached.length > 0) {
+        return { source: sourceId, results: cached, fromCache: true, error: null };
+      }
+
+      try {
+        const result = await tauriAPI.searchResource(keyword, sourceId);
+        if (!result.success) {
+          return { source: sourceId, results: [], fromCache: false, error: result.error };
+        }
+        const results = result.results || [];
+        if (results.length > 0) {
+          this.setCache(keyword, results, sourceId);
+        }
+        return { source: sourceId, results, fromCache: false, error: null };
+      } catch (e) {
+        return { source: sourceId, results: [], fromCache: false, error: e.message || String(e) };
+      }
+    }));
+
+    responses.forEach((response) => {
+      this.movieSourceResults[response.source] = response.results;
+      this.movieSourceCacheState[response.source] = response.fromCache;
+    });
+
+    const availableSource = this.movieSources.find((source) =>
+      (this.movieSourceResults[source.id] || []).length > 0
+    );
+    if (!availableSource) {
+      const errors = responses.map((response) => response.error).filter(Boolean);
+      this.showSearchStatus(
+        errors.length > 0 ? 'search-error' : 'search-empty',
+        errors.length > 0 ? `搜索失败: ${errors.join('；')}` : '未找到相关资源'
+      );
       return;
     }
 
-    console.log('Searching for:', keyword);
-    this.showSearchStatus('search-loading', '搜索中...');
+    this.currentMovieSource = availableSource.id;
+    this.renderMovieSourceResults();
+  }
 
-    try {
-      const result = await tauriAPI.searchResource(keyword);
-      console.log('Search result:', result);
+  renderMovieSourceResults() {
+    this.searchResults.replaceChildren();
 
-      if (!result.success) {
-        this.showSearchStatus('search-error', `搜索失败: ${result.error}`);
-        return;
+    const tabs = document.createElement('div');
+    tabs.className = 'movie-source-tabs';
+    const select = document.createElement('select');
+    select.id = 'movieSourceSelect';
+    select.className = 'movie-source-select';
+    select.setAttribute('aria-label', '搜索结果源');
+
+    let firstAvailable = null;
+    this.movieSources.forEach((source) => {
+      const results = this.movieSourceResults[source.id] || [];
+      const option = document.createElement('option');
+      option.value = source.id;
+      option.textContent = `${source.name}${results.length ? ` (${results.length})` : ''}`;
+      option.disabled = results.length === 0;
+      if (results.length > 0 && firstAvailable === null) {
+        firstAvailable = source.id;
       }
+      select.appendChild(option);
+    });
 
-      if (!result.results || result.results.length === 0) {
-        this.showSearchStatus('search-empty', '未找到相关资源');
-        return;
-      }
-
-      // 保存到缓存
-      this.setCache(keyword, result.results);
-
-      // 渲染搜索结果
-      this.renderSearchResults(result.results);
-    } catch (e) {
-      console.error('Search error:', e);
-      this.showSearchStatus('search-error', `搜索失败: ${e.message || e}`);
+    if ((this.movieSourceResults[this.currentMovieSource] || []).length === 0) {
+      this.currentMovieSource = firstAvailable || this.movieSources[0].id;
     }
+    select.value = this.currentMovieSource;
+
+    select.addEventListener('change', () => {
+      this.currentMovieSource = select.value;
+      this.renderMovieSourceResults();
+    });
+    tabs.appendChild(select);
+    this.searchResults.appendChild(tabs);
+
+    const resultList = document.createElement('div');
+    resultList.className = 'movie-source-results';
+    this.searchResults.appendChild(resultList);
+    this.renderSearchResults(
+      this.movieSourceResults[this.currentMovieSource] || [],
+      this.movieSourceCacheState[this.currentMovieSource] || false,
+      resultList
+    );
   }
 
   async doJavSearch(keyword, page = 1) {
@@ -1282,7 +1347,7 @@ class M3U8Player {
 
     const cacheKey = `jav_${keyword}_${page}`;
     const cached = this.getCache(cacheKey);
-    if (cached) {
+    if (Array.isArray(cached) && cached.length > 0) {
       console.log('Using cached JAV result for:', keyword, 'page:', page);
       this.renderJavSearchResults(cached, page, true);
       return;
@@ -1464,8 +1529,8 @@ class M3U8Player {
     }).filter(source => source.episodes.length > 0);
   }
 
-  renderSearchResults(results, fromCache = false) {
-    this.searchResults.replaceChildren();
+  renderSearchResults(results, fromCache = false, container = this.searchResults) {
+    container.replaceChildren();
 
     results.forEach((item) => {
       const resultItem = document.createElement('div');
@@ -1517,7 +1582,7 @@ class M3U8Player {
         this.renderEpisodesFromParsed(parsedSources);
       });
 
-      this.searchResults.appendChild(resultItem);
+      container.appendChild(resultItem);
     });
   }
 
@@ -1530,9 +1595,7 @@ class M3U8Player {
     backBtn.className = 'btn btn-small';
     backBtn.textContent = '返回搜索结果';
     backBtn.style.marginBottom = '8px';
-    backBtn.addEventListener('click', () => {
-      this.doSearch();
-    });
+    backBtn.addEventListener('click', () => this.renderMovieSourceResults());
     this.searchResults.appendChild(backBtn);
 
     // 资源标题
@@ -1544,7 +1607,7 @@ class M3U8Player {
     titleHeader.appendChild(titleText);
     this.searchResults.appendChild(titleHeader);
 
-    sources.forEach((source, sourceIdx) => {
+    sources.forEach((source) => {
       const lineHeader = document.createElement('div');
       lineHeader.className = 'search-result-item';
       const lineTitle = document.createElement('div');
@@ -1568,7 +1631,6 @@ class M3U8Player {
         });
         episodesContainer.appendChild(button);
       });
-
       this.searchResults.append(lineHeader, episodesContainer);
     });
   }
